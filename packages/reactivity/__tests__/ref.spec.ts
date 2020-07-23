@@ -9,7 +9,7 @@ import {
   isReactive
 } from '../src/index'
 import { computed } from '@vue/runtime-dom'
-import { shallowRef, unref, customRef } from '../src/ref'
+import { shallowRef, unref, customRef, triggerRef } from '../src/ref'
 
 describe('reactivity/ref', () => {
   it('should hold a value', () => {
@@ -22,11 +22,19 @@ describe('reactivity/ref', () => {
   it('should be reactive', () => {
     const a = ref(1)
     let dummy
+    let calls = 0
     effect(() => {
+      calls++
       dummy = a.value
     })
+    expect(calls).toBe(1)
     expect(dummy).toBe(1)
     a.value = 2
+    expect(calls).toBe(2)
+    expect(dummy).toBe(2)
+    // same value should not trigger
+    a.value = 2
+    expect(calls).toBe(2)
     expect(dummy).toBe(2)
   })
 
@@ -101,21 +109,10 @@ describe('reactivity/ref', () => {
   })
 
   it('should NOT unwrap ref types nested inside arrays', () => {
-    const arr = ref([1, ref(1)]).value
-    ;(arr[0] as number)++
-    ;(arr[1] as Ref<number>).value++
-
-    const arr2 = ref([1, new Map<string, any>(), ref('1')]).value
-    const value = arr2[0]
-    if (isRef(value)) {
-      value + 'foo'
-    } else if (typeof value === 'number') {
-      value + 1
-    } else {
-      // should narrow down to Map type
-      // and not contain any Ref type
-      value.has('foo')
-    }
+    const arr = ref([1, ref(3)]).value
+    expect(isRef(arr[0])).toBe(false)
+    expect(isRef(arr[1])).toBe(true)
+    expect((arr[1] as Ref).value).toBe(3)
   })
 
   it('should keep tuple types', () => {
@@ -171,6 +168,22 @@ describe('reactivity/ref', () => {
 
     sref.value = { a: 2 }
     expect(isReactive(sref.value)).toBe(false)
+    expect(dummy).toBe(2)
+  })
+
+  test('shallowRef force trigger', () => {
+    const sref = shallowRef({ a: 1 })
+    let dummy
+    effect(() => {
+      dummy = sref.value.a
+    })
+    expect(dummy).toBe(1)
+
+    sref.value.a = 2
+    expect(dummy).toBe(1) // should not trigger yet
+
+    // force trigger
+    triggerRef(sref)
     expect(dummy).toBe(2)
   })
 
@@ -253,6 +266,12 @@ describe('reactivity/ref', () => {
     expect(dummyY).toBe(5)
   })
 
+  test('toRefs pass a reactivity object', () => {
+    console.warn = jest.fn()
+    const obj = { x: 1 }
+    toRefs(obj)
+    expect(console.warn).toBeCalled()
+  })
   test('customRef', () => {
     let value = 1
     let _trigger: () => void
